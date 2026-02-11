@@ -1,0 +1,225 @@
+import React, { useMemo, useState } from 'react';
+import { 
+  startOfMonth, 
+  endOfMonth, 
+  startOfWeek, 
+  endOfWeek, 
+  eachDayOfInterval, 
+  isSameMonth, 
+  isSameDay, 
+  format, 
+  isWithinInterval, 
+  parse 
+} from 'date-fns';
+import { Project, Task } from '../types';
+import { CheckCircle2 } from 'lucide-react';
+
+interface CalendarProps {
+  currentDate: Date;
+  projects: Project[];
+  tasks: Task[];
+  onTaskClick: (task: Task) => void;
+  onDayClick?: (date: Date) => void;
+  onTaskMove?: (task: Task, newDate: Date) => void;
+}
+
+export const Calendar: React.FC<CalendarProps> = ({ 
+  currentDate, 
+  projects, 
+  tasks,
+  onTaskClick,
+  onDayClick,
+  onTaskMove
+}) => {
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+
+  const days = useMemo(() => {
+    const monthStart = startOfMonth(currentDate);
+    const monthEnd = endOfMonth(monthStart);
+    const startDate = startOfWeek(monthStart);
+    const endDate = endOfWeek(monthEnd);
+    return eachDayOfInterval({ start: startDate, end: endDate });
+  }, [currentDate]);
+
+  const getTasksForDay = (date: Date) => {
+    return tasks.filter(task => isSameDay(parse(task.date, 'yyyy-MM-dd', new Date()), date))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  };
+
+  const isTimeNow = (task: Task): boolean => {
+    const now = new Date();
+    const taskDate = parse(task.date, 'yyyy-MM-dd', new Date());
+    if (!isSameDay(now, taskDate)) return false;
+    
+    const [startH, startM] = task.startTime.split(':').map(Number);
+    const [endH, endM] = task.endTime.split(':').map(Number);
+    const startTime = new Date(taskDate);
+    startTime.setHours(startH, startM, 0);
+    const endTime = new Date(taskDate);
+    endTime.setHours(endH, endM, 0);
+    
+    return isWithinInterval(now, { start: startTime, end: endTime });
+  };
+
+  const getTaskStyle = (task: Task, project: Project | undefined, active: boolean) => {
+    const checklist = task.checklist || [];
+    const total = checklist.length;
+    const completed = checklist.filter(i => i.completed).length;
+    
+    let progress = total === 0 ? (task.completed ? 1 : 0) : completed / total;
+    if (task.completed) progress = 1;
+
+    const alpha = 0.15 + (progress * 0.85);
+    const baseColor = project?.color || '#3b82f6';
+    const alphaInt = Math.round(alpha * 255);
+    const alphaHex = alphaInt.toString(16).padStart(2, '0');
+    const colorWithAlpha = `${baseColor}${alphaHex}`;
+
+    const isLightColor = ['#eab308', '#f97316', '#bef264', '#fde047'].some(c => baseColor.toLowerCase().includes(c));
+    const textColor = (alpha > 0.5 && !isLightColor) ? '#ffffff' : '#1e293b';
+
+    return {
+      style: {
+        backgroundColor: colorWithAlpha,
+        color: textColor,
+        borderColor: baseColor,
+      },
+      alpha
+    };
+  };
+
+  const handleDragEnter = (e: React.DragEvent, dateStr: string) => {
+    e.preventDefault();
+    setDragOverDate(dateStr);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOverDate(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, date: Date) => {
+    e.preventDefault();
+    setDragOverDate(null);
+    const taskId = e.dataTransfer.getData('text/plain');
+    const task = tasks.find(ev => ev.id === taskId);
+    
+    if (task && onTaskMove) {
+      onTaskMove(task, date);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
+      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 auto-rows-fr bg-slate-200 gap-px flex-1">
+        {days.map((day) => {
+          const isToday = isSameDay(day, new Date());
+          const isCurrentMonth = isSameMonth(day, currentDate);
+          const dayTasks = getTasksForDay(day);
+          const dayIso = day.toISOString();
+          const isDragTarget = dragOverDate === dayIso;
+          
+          const activeIndex = dayTasks.findIndex(e => isTimeNow(e));
+          let displayTasks = dayTasks;
+          const maxVisible = 3;
+          let hasMore = false;
+
+          if (dayTasks.length > maxVisible) {
+            hasMore = true;
+            if (activeIndex !== -1) {
+              let start = Math.max(0, activeIndex - 1);
+              if (start + maxVisible > dayTasks.length) {
+                start = Math.max(0, dayTasks.length - maxVisible);
+              }
+              displayTasks = dayTasks.slice(start, start + maxVisible);
+            } else {
+              displayTasks = dayTasks.slice(0, maxVisible);
+            }
+          }
+
+          return (
+            <div
+              key={dayIso}
+              onClick={() => onDayClick && onDayClick(day)}
+              onDragOver={(e) => e.preventDefault()}
+              onDragEnter={(e) => handleDragEnter(e, dayIso)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, day)}
+              className={`
+                min-h-[120px] bg-white p-2 flex flex-col gap-1 transition-all relative group cursor-pointer
+                ${!isCurrentMonth ? 'bg-slate-50/50' : ''}
+                ${isToday ? 'z-10 ring-2 ring-inset ring-indigo-500 shadow-xl scale-[1.02] rounded-lg' : isDragTarget ? 'bg-indigo-50 ring-2 ring-inset ring-indigo-300 z-10' : 'hover:bg-slate-50'}
+              `}
+            >
+              <div className="flex justify-between items-start mb-1 pointer-events-none">
+                <span className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white shadow-md' : isCurrentMonth ? 'text-slate-700' : 'text-slate-400'}`}>
+                  {format(day, 'd')}
+                </span>
+                {dayTasks.length > 0 && dayTasks.every(e => e.completed) && (
+                   <CheckCircle2 size={14} className="text-green-500 opacity-50" />
+                )}
+              </div>
+
+              <div className="flex-1 flex flex-col gap-1 overflow-hidden">
+                {displayTasks.map((task) => {
+                  const project = projects.find(p => p.id === task.projectId);
+                  const active = isTimeNow(task);
+                  const { style } = getTaskStyle(task, project, active);
+                  
+                  return (
+                    <button
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', task.id);
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTaskClick(task);
+                      }}
+                      className={`
+                        text-left text-xs px-2 py-1.5 rounded-md truncate font-medium transition-all w-full
+                        relative overflow-visible group/event border flex-shrink-0 cursor-grab active:cursor-grabbing
+                        ${active ? 'shadow-lg ring-1 ring-white/50 z-20' : 'hover:shadow-sm hover:scale-[1.01] hover:z-10'}
+                      `}
+                      style={style}
+                    >
+                      {active && (
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3 z-30 pointer-events-none">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 border border-white"></span>
+                        </span>
+                      )}
+                      
+                      <div className="flex items-center gap-1 pointer-events-none">
+                        <span className="flex-1 truncate relative z-10">{task.title}</span>
+                      </div>
+                      <div className="text-[10px] opacity-90 relative z-10 pointer-events-none">
+                        {task.startTime}
+                      </div>
+                    </button>
+                  );
+                })}
+                {hasMore && (
+                  <div className="text-[10px] text-slate-400 text-center font-medium py-0.5 pointer-events-none">
+                    + {dayTasks.length - displayTasks.length} more
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
