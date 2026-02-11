@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format, isSameDay, parse, isWithinInterval } from 'date-fns';
-// Added Sparkles to the import list below
-import { ArrowLeft, CheckSquare, Clock, Video, Image as ImageIcon, CircleDashed, List, LayoutGrid, ChevronRight, ChevronLeft, CheckCircle2, Sparkles } from 'lucide-react';
+import { CheckSquare, Clock, ChevronRight, ChevronLeft, Video, Image as ImageIcon, CircleDashed, Sparkles } from 'lucide-react';
 import { Project, Task } from '../types';
 
 interface DayViewProps {
@@ -14,8 +13,6 @@ interface DayViewProps {
   onUpdateTask: (task: Task) => void;
 }
 
-type DisplayMode = 'dial' | 'agenda';
-
 export const DayView: React.FC<DayViewProps> = ({
   date,
   projects,
@@ -26,9 +23,7 @@ export const DayView: React.FC<DayViewProps> = ({
 }) => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('dial');
 
-  // --- Dragging State ---
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragState, setDragState] = useState<{
     taskId: string;
@@ -49,539 +44,226 @@ export const DayView: React.FC<DayViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Filter tasks for this day
   const dayTasks = useMemo(() => {
     return tasks.filter(task => 
       isSameDay(parse(task.date, 'yyyy-MM-dd', new Date()), date)
     ).sort((a, b) => a.startTime.localeCompare(b.startTime));
   }, [tasks, date]);
 
-  // Handle default selection
   useEffect(() => {
     if (dragState) return;
     if (selectedTaskId && dayTasks.some(e => e.id === selectedTaskId)) return;
-
     const now = new Date();
     const isToday = isSameDay(date, now);
-    
     if (isToday) {
       const current = dayTasks.find(e => {
         const start = parse(`${e.date} ${e.startTime}`, 'yyyy-MM-dd HH:mm', new Date());
         const end = parse(`${e.date} ${e.endTime}`, 'yyyy-MM-dd HH:mm', new Date());
         return isWithinInterval(now, { start, end });
       });
-      if (current) {
-        setSelectedTaskId(current.id);
-        return;
-      }
-    } else if (dayTasks.length > 0) {
-      setSelectedTaskId(dayTasks[0].id);
+      if (current) { setSelectedTaskId(current.id); return; }
     }
+    if (dayTasks.length > 0) setSelectedTaskId(dayTasks[0].id);
   }, [dayTasks, date, selectedTaskId, dragState]);
 
   const activeTaskData = useMemo(() => {
     const baseTask = dayTasks.find(e => e.id === selectedTaskId);
     if (!baseTask) return null;
-    
     if (dragPreview && dragPreview.taskId === baseTask.id) {
-      return {
-        ...baseTask,
-        startTime: dragPreview.newStartTime,
-        endTime: dragPreview.newEndTime
-      };
+      return { ...baseTask, startTime: dragPreview.newStartTime, endTime: dragPreview.newEndTime };
     }
     return baseTask;
   }, [dayTasks, selectedTaskId, dragPreview]);
 
-
-  // --- SVG Math Helpers ---
-  const VIEW_SIZE = 340;
+  // Unified VIEW_SIZE for focused mobile/desktop display - Increasded from 240 to 320
+  const VIEW_SIZE = 320; 
   const CENTER = VIEW_SIZE / 2;
-  const RADIUS_PM = 120; // Outer ring
-  const RADIUS_AM = 80;  // Inner ring
-  const STROKE_WIDTH_TRACK = 30; // Background track
-  const STROKE_WIDTH_EVENT = 26; // Event stroke
+  const RADIUS_PM = 110; 
+  const RADIUS_AM = 75;  
+  const STROKE_WIDTH_TRACK = 28; 
+  const STROKE_WIDTH_EVENT = 24; 
 
   const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
     const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-    return {
-      x: centerX + (radius * Math.cos(angleInRadians)),
-      y: centerY + (radius * Math.sin(angleInRadians))
-    };
+    return { x: centerX + (radius * Math.cos(angleInRadians)), y: centerY + (radius * Math.sin(angleInRadians)) };
   };
 
   const describeArc = (x: number, y: number, radius: number, startAngle: number, endAngle: number) => {
     const start = polarToCartesian(x, y, radius, endAngle);
     const end = polarToCartesian(x, y, radius, startAngle);
     const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-    return [
-      "M", start.x, start.y,
-      "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
-    ].join(" ");
+    return ["M", start.x, start.y, "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y].join(" ");
   };
 
   const getAngleFromPoint = (x: number, y: number) => {
-    const dx = x - CENTER;
-    const dy = y - CENTER;
+    const dx = x - CENTER; const dy = y - CENTER;
     let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
     if (angle < 0) angle += 360;
     return angle;
   };
 
-  // --- Drag Handlers ---
   const handleMouseDown = (e: React.MouseEvent, taskId: string, isPm: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     if (!svgRef.current) return;
-
     const task = dayTasks.find(ev => ev.id === taskId);
     if (!task) return;
-
     const [startH, startM] = task.startTime.split(':').map(Number);
-    const [endH, endM] = task.endTime.split(':').map(Number);
     const startTotal = startH * 60 + startM;
-    const endTotal = endH * 60 + endM;
-    
+    const [endH, endM] = task.endTime.split(':').map(Number);
+    const duration = (endH * 60 + endM) - startTotal;
     const rect = svgRef.current.getBoundingClientRect();
     const angle = getAngleFromPoint(e.clientX - rect.left, e.clientY - rect.top);
-
     setSelectedTaskId(taskId);
-    setDragState({
-      taskId,
-      originalStartMin: startTotal,
-      duration: endTotal - startTotal,
-      startAngle: angle,
-      isPm
-    });
+    setDragState({ taskId, originalStartMin: startTotal, duration, startAngle: angle, isPm });
   };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragState || !svgRef.current) return;
-
       const rect = svgRef.current.getBoundingClientRect();
       const currentAngle = getAngleFromPoint(e.clientX - rect.left, e.clientY - rect.top);
-      
       let deltaAngle = currentAngle - dragState.startAngle;
-      if (deltaAngle > 180) deltaAngle -= 360;
-      if (deltaAngle < -180) deltaAngle += 360;
-
+      if (deltaAngle > 180) deltaAngle -= 360; if (deltaAngle < -180) deltaAngle += 360;
       const deltaMinutes = Math.round(deltaAngle * 2);
       const snappedDelta = Math.round(deltaMinutes / 5) * 5;
-
       let newStartMin = dragState.originalStartMin + snappedDelta;
-      
-      if (!dragState.isPm) {
-        newStartMin = Math.max(0, Math.min(719 - dragState.duration, newStartMin));
-      } else {
-        newStartMin = Math.max(720, Math.min(1440 - dragState.duration, newStartMin));
-      }
-
-      const newEndMin = newStartMin + dragState.duration;
-
-      const formatTime = (totalMin: number) => {
-        const h = Math.floor(totalMin / 60);
-        const m = totalMin % 60;
-        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-      };
-
-      setDragPreview({
-        taskId: dragState.taskId,
-        newStartTime: formatTime(newStartMin),
-        newEndTime: formatTime(newEndMin)
-      });
+      if (!dragState.isPm) newStartMin = Math.max(0, Math.min(719 - dragState.duration, newStartMin));
+      else newStartMin = Math.max(720, Math.min(1440 - dragState.duration, newStartMin));
+      const formatTime = (t: number) => `${Math.floor(t / 60).toString().padStart(2, '0')}:${(t % 60).toString().padStart(2, '0')}`;
+      setDragPreview({ taskId: dragState.taskId, newStartTime: formatTime(newStartMin), newEndTime: formatTime(newStartMin + dragState.duration) });
     };
-
     const handleMouseUp = () => {
       if (dragState && dragPreview) {
         const task = dayTasks.find(e => e.id === dragState.taskId);
-        if (task) {
-          onUpdateTask({
-            ...task,
-            startTime: dragPreview.newStartTime,
-            endTime: dragPreview.newEndTime
-          });
-        }
+        if (task) onUpdateTask({ ...task, startTime: dragPreview.newStartTime, endTime: dragPreview.newEndTime });
       }
-      setDragState(null);
-      setDragPreview(null);
+      setDragState(null); setDragPreview(null);
     };
-
-    if (dragState) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
+    if (dragState) { window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp); }
+    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, [dragState, dragPreview, dayTasks, onUpdateTask]);
 
-
-  // Process tasks into visual segments
   const taskSegments = useMemo(() => {
     const segments: any[] = [];
-
     dayTasks.forEach(task => {
       const isDragging = dragPreview?.taskId === task.id;
       const effectiveStartTime = isDragging ? dragPreview!.newStartTime : task.startTime;
       const effectiveEndTime = isDragging ? dragPreview!.newEndTime : task.endTime;
-
       const [startH, startM] = effectiveStartTime.split(':').map(Number);
-      const [endH, endM] = effectiveEndTime.split(':').map(Number);
-      
       const startMinutes = startH * 60 + startM;
+      const [endH, endM] = effectiveEndTime.split(':').map(Number);
       const endMinutes = endH * 60 + endM;
       const project = projects.find(p => p.id === task.projectId);
-
       const addSegment = (isPm: boolean, startMin: number, endMin: number) => {
         let startDeg = ((startMin / 60) % 12) * 30 + (startMin % 60) * 0.5;
         let endDeg = ((endMin / 60) % 12) * 30 + (endMin % 60) * 0.5;
-        
         if (endDeg <= startDeg) endDeg += 360;
-
         segments.push({
-          id: task.id,
-          task,
-          isPm,
-          path: describeArc(CENTER, CENTER, isPm ? RADIUS_PM : RADIUS_AM, startDeg, endDeg),
-          color: project?.color || '#cbd5e1',
-          isActive: isWithinInterval(currentTime, {
-            start: parse(`${task.date} ${effectiveStartTime}`, 'yyyy-MM-dd HH:mm', new Date()),
-            end: parse(`${task.date} ${effectiveEndTime}`, 'yyyy-MM-dd HH:mm', new Date()),
-          }),
-          duration: endMin - startMin,
-          isDragging
+          id: task.id, task, isPm, path: describeArc(CENTER, CENTER, isPm ? RADIUS_PM : RADIUS_AM, startDeg, endDeg),
+          color: project?.color || '#cbd5e1', duration: endMin - startMin, isDragging
         });
       };
-
-      if (startMinutes < 720 && endMinutes <= 720) {
-        addSegment(false, startMinutes, endMinutes);
-      } else if (startMinutes >= 720) {
-        addSegment(true, startMinutes, endMinutes);
-      } else {
-        addSegment(false, startMinutes, 720); 
-        addSegment(true, 720, endMinutes);   
-      }
+      if (startMinutes < 720 && endMinutes <= 720) addSegment(false, startMinutes, endMinutes);
+      else if (startMinutes >= 720) addSegment(true, startMinutes, endMinutes);
+      else { addSegment(false, startMinutes, 720); addSegment(true, 720, endMinutes); }
     });
-
-    return segments.sort((a, b) => {
-      if (a.isDragging) return 1;
-      if (b.isDragging) return -1;
-      return b.duration - a.duration;
-    });
-  }, [dayTasks, projects, currentTime, dragPreview]);
-
-  const getOpacity = (task: Task) => {
-    if (dragPreview?.taskId === task.id) return 0.9;
-    const total = task.checklist.length;
-    const completed = task.checklist.filter(i => i.completed).length;
-    if (task.completed) return 1;
-    if (total === 0) return 0.2;
-    return 0.2 + (completed / total) * 0.8;
-  };
+    return segments;
+  }, [dayTasks, projects, dragPreview]);
 
   const toggleChecklistItem = (task: Task, itemId: string) => {
-    const updatedChecklist = task.checklist.map(item => 
-      item.id === itemId ? { ...item, completed: !item.completed } : item
-    );
-    const allCompleted = updatedChecklist.every(i => i.completed);
-    onUpdateTask({ ...task, checklist: updatedChecklist, completed: allCompleted && updatedChecklist.length > 0 });
+    const updatedChecklist = task.checklist.map(item => item.id === itemId ? { ...item, completed: !item.completed } : item);
+    onUpdateTask({ ...task, checklist: updatedChecklist, completed: updatedChecklist.every(i => i.completed) && updatedChecklist.length > 0 });
   };
 
-  const getIconForType = (type: string) => {
-    switch (type) {
-      case 'video': return <Video size={14} className="text-purple-500" />;
-      case 'story': return <CircleDashed size={14} className="text-pink-500" />;
-      case 'image': return <ImageIcon size={14} className="text-blue-500" />;
-      default: return <ImageIcon size={14} className="text-slate-400" />;
-    }
-  };
-
-  const isViewingToday = isSameDay(date, new Date());
-  const now = new Date();
-  const currentHandDegrees = ((now.getHours() % 12) * 30) + (now.getMinutes() * 0.5);
-  const isCurrentPm = now.getHours() >= 12;
-
-  const BASE_COLOR_RGB = "99, 102, 241"; 
-  const activeRingColor = `rgba(${BASE_COLOR_RGB}, 0.15)`;
-  const inactiveRingColor = `rgba(${BASE_COLOR_RGB}, 0.05)`;
-  const amRingColor = !isCurrentPm ? activeRingColor : inactiveRingColor; 
-  const pmRingColor = isCurrentPm ? activeRingColor : inactiveRingColor;
-  const topTextPos = polarToCartesian(CENTER, CENTER, CENTER - 25, 0);
+  const currentHandDegrees = ((currentTime.getHours() % 12) * 30) + (currentTime.getMinutes() * 0.5);
+  const isCurrentPm = currentTime.getHours() >= 12;
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative select-none">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white z-10 shrink-0">
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={onBack}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800 leading-none">
-              {format(date, 'EEEE')}
-            </h2>
-            <p className="text-sm text-indigo-600 font-medium">
-              {format(date, 'MMMM do')}
-            </p>
-          </div>
-        </div>
+    <div className="flex-1 flex flex-col items-center bg-slate-50 min-h-full pb-12 overflow-y-auto">
+      {/* Significantly larger dial for better visibility and interactivity */}
+      <div className="w-full max-w-[340px] aspect-square relative my-6 flex-shrink-0 bg-white rounded-[2.5rem] shadow-2xl border border-white p-2">
+        <svg ref={svgRef} viewBox={`0 0 ${VIEW_SIZE} ${VIEW_SIZE}`} className="w-full h-full" style={{ touchAction: 'none' }}>
+          <circle cx={CENTER} cy={CENTER} r={CENTER - 5} fill="#fcfcfd" />
+          <text x={CENTER} y={CENTER} textAnchor="middle" dominantBaseline="middle" className="text-3xl font-black fill-slate-800 tracking-tight">{format(currentTime, 'h:mm')}</text>
+          <text x={CENTER} y={CENTER + 22} textAnchor="middle" dominantBaseline="middle" className="text-[11px] font-black fill-slate-400 uppercase tracking-[0.2em]">{format(currentTime, 'a')}</text>
+          
+          <circle cx={CENTER} cy={CENTER} r={RADIUS_PM} fill="none" stroke={isCurrentPm ? "rgba(99, 102, 241, 0.08)" : "rgba(0,0,0,0.02)"} strokeWidth={STROKE_WIDTH_TRACK} />
+          <circle cx={CENTER} cy={CENTER} r={RADIUS_AM} fill="none" stroke={!isCurrentPm ? "rgba(99, 102, 241, 0.08)" : "rgba(0,0,0,0.02)"} strokeWidth={STROKE_WIDTH_TRACK} />
 
-        {/* Mode Switcher */}
-        <div className="bg-slate-100 rounded-lg p-1 flex items-center">
-           <button 
-            onClick={() => setDisplayMode('dial')}
-            className={`p-1.5 rounded-md transition-all ${displayMode === 'dial' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-            title="Clock View"
-           >
-             <LayoutGrid size={18} />
-           </button>
-           <button 
-            onClick={() => setDisplayMode('agenda')}
-            className={`p-1.5 rounded-md transition-all ${displayMode === 'agenda' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-            title="Agenda List"
-           >
-             <List size={18} />
-           </button>
-        </div>
+          {taskSegments.map((seg, idx) => (
+            <g key={`${seg.id}-${idx}`} onClick={() => setSelectedTaskId(seg.id)} onMouseDown={(e) => handleMouseDown(e, seg.id, seg.isPm)} className="cursor-pointer group">
+              <path 
+                d={seg.path} fill="none" stroke={seg.color} strokeWidth={selectedTaskId === seg.id ? STROKE_WIDTH_EVENT + 6 : STROKE_WIDTH_EVENT} 
+                strokeLinecap="round" strokeOpacity={selectedTaskId === seg.id ? 1 : 0.45} className="transition-all duration-300 group-hover:stroke-opacity-80"
+              />
+            </g>
+          ))}
+
+          {isSameDay(date, new Date()) && (
+            <g transform={`rotate(${currentHandDegrees}, ${CENTER}, ${CENTER})`} className="pointer-events-none transition-transform duration-1000 ease-linear">
+                <line x1={CENTER} y1={CENTER} x2={CENTER} y2={CENTER - RADIUS_PM - 6} stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />
+                <circle cx={CENTER} cy={CENTER} r="3.5" fill="#ef4444" />
+            </g>
+          )}
+        </svg>
+        
+        {dayTasks.length > 1 && (
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-2 pointer-events-none">
+              <button onClick={() => { const i = dayTasks.findIndex(t => t.id === selectedTaskId); setSelectedTaskId(dayTasks[(i - 1 + dayTasks.length) % dayTasks.length].id); }} className="p-2 bg-white/95 rounded-full shadow-lg pointer-events-auto border border-slate-100 text-slate-400 active:scale-95 transition-transform"><ChevronLeft size={24} /></button>
+              <button onClick={() => { const i = dayTasks.findIndex(t => t.id === selectedTaskId); setSelectedTaskId(dayTasks[(i + 1) % dayTasks.length].id); }} className="p-2 bg-white/95 rounded-full shadow-lg pointer-events-auto border border-slate-100 text-slate-400 active:scale-95 transition-transform"><ChevronRight size={24} /></button>
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
-        {displayMode === 'dial' ? (
-          <div className="flex flex-col items-center w-full min-h-full">
-            {/* Clock Viz */}
-            <div className="w-full max-w-[340px] aspect-square relative my-4 flex-shrink-0">
-              <svg 
-                ref={svgRef}
-                viewBox={`0 0 ${VIEW_SIZE} ${VIEW_SIZE}`} 
-                className="w-full h-full drop-shadow-xl"
-                style={{ touchAction: 'none' }}
-              >
-                <circle cx={CENTER} cy={CENTER} r={CENTER - 10} fill="white" className="shadow-sm" />
-                
-                <text x={CENTER} y={CENTER} textAnchor="middle" dominantBaseline="middle" className="text-3xl font-bold fill-slate-700 tracking-tight">
-                  {format(currentTime, 'h:mm')}
-                </text>
-                <text x={CENTER} y={CENTER + 20} textAnchor="middle" dominantBaseline="middle" className="text-xs font-bold fill-slate-400 uppercase tracking-widest">
-                  {format(currentTime, 'a')}
-                </text>
+      {/* Focused Checklist View */}
+      <div className="w-full px-4 max-w-lg animate-in slide-in-from-bottom-6 duration-400">
+        {activeTaskData ? (
+          <div className="bg-white rounded-[2rem] shadow-2xl border border-white overflow-hidden">
+             <div className="p-5 border-b border-slate-50 flex justify-between items-start bg-slate-50/40">
+               <div className="flex-1">
+                  <span className="text-[10px] font-black uppercase tracking-[0.15em] text-white px-2.5 py-1 rounded-lg shadow-sm" style={{ backgroundColor: projects.find(p => p.id === activeTaskData.projectId)?.color }}>
+                    {projects.find(p => p.id === activeTaskData.projectId)?.name}
+                  </span>
+                  <h3 className="text-xl font-black text-slate-800 mt-2 leading-tight tracking-tight">{activeTaskData.title}</h3>
+                  <div className="flex items-center gap-2 text-[11px] font-black text-slate-400 mt-1.5 uppercase tracking-widest">
+                    <Clock size={14} className="text-slate-300" /> {activeTaskData.startTime} — {activeTaskData.endTime}
+                  </div>
+               </div>
+               <button onClick={() => onTaskClick(activeTaskData)} className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-colors">Edit</button>
+             </div>
 
-                <text x={topTextPos.x} y={topTextPos.y} textAnchor="middle" dominantBaseline="middle" className="text-sm font-bold fill-slate-300">
-                  12
-                </text>
-
-                <circle cx={CENTER} cy={CENTER} r={RADIUS_PM} fill="none" stroke={pmRingColor} strokeWidth={STROKE_WIDTH_TRACK} />
-                <circle cx={CENTER} cy={CENTER} r={RADIUS_AM} fill="none" stroke={amRingColor} strokeWidth={STROKE_WIDTH_TRACK} />
-
-                {taskSegments.map((seg, idx) => (
-                  <g 
-                    key={`${seg.id}-${idx}`} 
-                    onMouseDown={(e) => handleMouseDown(e, seg.id, seg.isPm)}
-                    className={`transition-opacity ${dragState ? (dragState.taskId === seg.id ? 'cursor-grabbing' : 'opacity-50') : 'cursor-grab hover:opacity-80'}`}
-                  >
-                    {seg.isActive && !dragState && (
-                       <path d={seg.path} fill="none" stroke={seg.color} strokeWidth={STROKE_WIDTH_EVENT + 8} strokeLinecap="round" className="opacity-30 animate-pulse" />
-                    )}
-                    <path d={seg.path} fill="none" stroke={seg.color} strokeWidth={STROKE_WIDTH_EVENT} strokeLinecap="round" strokeOpacity={getOpacity(seg.task)} />
-                    {seg.isDragging && (
-                      <path d={seg.path} fill="none" stroke="white" strokeWidth={2} strokeDasharray="4 4" strokeLinecap="round" className="opacity-50" />
-                    )}
-                  </g>
-                ))}
-
-                {isViewingToday && (
-                  <g transform={`rotate(${currentHandDegrees}, ${CENTER}, ${CENTER})`} className="pointer-events-none transition-transform duration-1000 ease-linear">
-                     <line x1={CENTER} y1={CENTER} x2={CENTER} y2={CENTER - RADIUS_PM - 10} stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
-                     <circle cx={CENTER} cy={CENTER} r="4" fill="#ef4444" />
-                     <circle cx={CENTER} cy={CENTER - RADIUS_PM - 10} r="3" fill="#ef4444" />
-                  </g>
-                )}
-              </svg>
-
-              {/* Navigation Arrows for tasks */}
-              {dayTasks.length > 1 && (
-                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-2 pointer-events-none">
-                   <button 
-                    className="p-2 bg-white/80 backdrop-blur-sm rounded-full shadow-lg pointer-events-auto hover:bg-white text-slate-400 hover:text-indigo-600 transition-all"
-                    onClick={() => {
-                      const idx = dayTasks.findIndex(t => t.id === selectedTaskId);
-                      const prev = dayTasks[(idx - 1 + dayTasks.length) % dayTasks.length];
-                      setSelectedTaskId(prev.id);
-                    }}
-                   >
-                     <ChevronLeft size={20} />
-                   </button>
-                   <button 
-                    className="p-2 bg-white/80 backdrop-blur-sm rounded-full shadow-lg pointer-events-auto hover:bg-white text-slate-400 hover:text-indigo-600 transition-all"
-                    onClick={() => {
-                      const idx = dayTasks.findIndex(t => t.id === selectedTaskId);
-                      const next = dayTasks[(idx + 1) % dayTasks.length];
-                      setSelectedTaskId(next.id);
-                    }}
-                   >
-                     <ChevronRight size={20} />
-                   </button>
-                </div>
-              )}
-            </div>
-
-            {/* Selected Task Details Card */}
-            <div className="w-full px-4 pb-8 max-w-md animate-in slide-in-from-bottom-4 duration-300">
-              {activeTaskData ? (
-                <div className={`bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden transition-all ${dragPreview ? 'ring-2 ring-indigo-400 scale-[1.02]' : ''}`}>
-                   <div className="p-4 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-                     <div>
-                        <span 
-                          className="inline-block px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider mb-1"
-                          style={{ backgroundColor: projects.find(p => p.id === activeTaskData.projectId)?.color || '#cbd5e1' }}
-                        >
-                          {projects.find(p => p.id === activeTaskData.projectId)?.name}
-                        </span>
-                        <h3 className="font-bold text-slate-800 leading-tight">{activeTaskData.title}</h3>
-                        <div className={`flex items-center gap-1 text-xs mt-1 transition-colors ${dragPreview ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
-                          <Clock size={12} />
-                          {activeTaskData.startTime} - {activeTaskData.endTime}
-                          {dragPreview && <span className="ml-2 bg-indigo-100 text-indigo-700 px-1.5 rounded text-[10px]">MOVING</span>}
-                        </div>
-                     </div>
-                     {!dragPreview && (
-                       <button onClick={() => onTaskClick(activeTaskData)} className="text-indigo-600 text-xs font-semibold hover:underline">
-                         Edit
-                       </button>
-                     )}
+             <div className="p-6 space-y-4">
+               <div className="space-y-3">
+                 {activeTaskData.checklist.map(item => (
+                   <div key={item.id} className="flex items-start gap-4 cursor-pointer group" onClick={() => toggleChecklistItem(activeTaskData, item.id)}>
+                      <div className={`mt-0.5 w-6 h-6 rounded-xl border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 scale-95 shadow-inner' : 'border-slate-200 bg-white group-hover:border-indigo-300'}`}>
+                        {item.completed && <CheckSquare size={16} className="text-white" />}
+                      </div>
+                      <span className={`text-[15px] font-bold flex-1 leading-snug transition-all ${item.completed ? 'text-slate-300 line-through' : 'text-slate-700'}`}>{item.text}</span>
                    </div>
+                 ))}
+                 {activeTaskData.checklist.length === 0 && <p className="text-sm text-slate-400 italic text-center py-4">No checklist items for this task.</p>}
+               </div>
 
-                   <div className={`p-4 space-y-3 ${dragPreview ? 'opacity-50 pointer-events-none' : ''}`}>
-                     <div className="space-y-2">
-                       {activeTaskData.checklist.map(item => (
-                         <div key={item.id} className="flex items-start gap-3 group cursor-pointer" onClick={() => toggleChecklistItem(activeTaskData, item.id)}>
-                            <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${item.completed ? 'bg-green-500 border-green-500' : 'border-slate-300 bg-white'}`}>
-                              {item.completed && <CheckSquare size={10} className="text-white" />}
-                            </div>
-                            <span className={`text-sm flex-1 leading-snug ${item.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                              {item.text}
-                            </span>
+               {activeTaskData.contentIdeas?.length > 0 && (
+                 <div className="pt-5 border-t border-slate-50">
+                    <h4 className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-3">Social Media Ideas</h4>
+                    <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+                       {activeTaskData.contentIdeas.map(idea => (
+                         <div key={idea.id} className="flex-shrink-0 bg-slate-50 rounded-2xl p-3 w-32 flex flex-col items-center text-center border border-slate-100 hover:border-indigo-100 transition-colors">
+                           {idea.type === 'video' ? <Video size={18} className="text-purple-500" /> : idea.type === 'story' ? <CircleDashed size={18} className="text-pink-500" /> : <ImageIcon size={18} className="text-blue-500" />}
+                           <span className="text-[10px] font-black text-slate-600 mt-2.5 line-clamp-2 leading-snug uppercase tracking-tight">{idea.text}</span>
                          </div>
                        ))}
-                       {activeTaskData.checklist.length === 0 && (
-                         <p className="text-xs text-slate-400 italic">No items in checklist.</p>
-                       )}
-                     </div>
-
-                     {activeTaskData.contentIdeas && activeTaskData.contentIdeas.length > 0 && (
-                       <div className="pt-3 border-t border-slate-100">
-                         <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Content Ideas</p>
-                         <div className="flex gap-2 overflow-x-auto pb-2">
-                           {activeTaskData.contentIdeas.map(idea => (
-                             <div key={idea.id} className="flex-shrink-0 bg-slate-50 border border-slate-100 rounded-lg p-2 w-24 flex flex-col gap-1 items-center text-center">
-                               {getIconForType(idea.type)}
-                               <span className="text-[10px] text-slate-600 line-clamp-2 leading-tight">{idea.text}</span>
-                             </div>
-                           ))}
-                         </div>
-                       </div>
-                     )}
-                   </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-slate-400">
-                  <p className="text-sm">Select a time slot on the dial</p>
-                </div>
-              )}
-            </div>
+                    </div>
+                 </div>
+               )}
+             </div>
           </div>
         ) : (
-          <div className="p-4 space-y-4 max-w-2xl mx-auto animate-in fade-in duration-300">
-             {dayTasks.map((task) => {
-               const project = projects.find(p => p.id === task.projectId);
-               const isCurrent = isWithinInterval(currentTime, {
-                 start: parse(`${task.date} ${task.startTime}`, 'yyyy-MM-dd HH:mm', new Date()),
-                 end: parse(`${task.date} ${task.endTime}`, 'yyyy-MM-dd HH:mm', new Date()),
-               });
-
-               return (
-                 <div 
-                   key={task.id} 
-                   className={`bg-white rounded-xl shadow-sm border transition-all ${isCurrent ? 'ring-2 ring-indigo-500 border-transparent' : 'border-slate-200'}`}
-                 >
-                   <div className="p-4 flex gap-4">
-                     {/* Time & Marker */}
-                     <div className="flex flex-col items-center gap-1 min-w-[60px] pt-1">
-                        <span className="text-xs font-bold text-slate-800">{task.startTime}</span>
-                        <div className="w-1 flex-1 bg-slate-100 rounded-full relative">
-                           <div className="absolute top-0 w-full h-full rounded-full opacity-20" style={{ backgroundColor: project?.color }} />
-                        </div>
-                        <span className="text-[10px] font-medium text-slate-400 uppercase">{task.endTime}</span>
-                     </div>
-
-                     {/* Content */}
-                     <div className="flex-1">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <span 
-                              className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-white"
-                              style={{ backgroundColor: project?.color }}
-                            >
-                              {project?.name}
-                            </span>
-                            <h3 className="text-lg font-bold text-slate-800 mt-1">{task.title}</h3>
-                          </div>
-                          <button onClick={() => onTaskClick(task)} className="p-2 text-slate-300 hover:text-slate-500 hover:bg-slate-50 rounded-lg">
-                             <ChevronRight size={20} />
-                          </button>
-                        </div>
-
-                        {/* Summary Stats */}
-                        <div className="flex items-center gap-4 mb-4">
-                           <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                              <CheckCircle2 size={14} className={task.completed ? 'text-green-500' : 'text-slate-300'} />
-                              <span>{task.checklist.filter(i => i.completed).length} / {task.checklist.length} items</span>
-                           </div>
-                           {task.contentIdeas && task.contentIdeas.length > 0 && (
-                             <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                               <Sparkles size={14} className="text-yellow-500" />
-                               <span>{task.contentIdeas.length} ideas</span>
-                             </div>
-                           )}
-                        </div>
-
-                        {/* Checklist - In-place editing */}
-                        <div className="space-y-2 bg-slate-50 rounded-lg p-3">
-                           {task.checklist.map(item => (
-                             <div 
-                              key={item.id} 
-                              className="flex items-start gap-3 group cursor-pointer" 
-                              onClick={() => toggleChecklistItem(task, item.id)}
-                             >
-                                <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${item.completed ? 'bg-green-500 border-green-500' : 'border-slate-300 bg-white'}`}>
-                                  {item.completed && <CheckSquare size={10} className="text-white" />}
-                                </div>
-                                <span className={`text-sm flex-1 leading-snug ${item.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                                  {item.text}
-                                </span>
-                             </div>
-                           ))}
-                           {task.checklist.length === 0 && (
-                             <p className="text-xs text-slate-400 italic">No checklist items.</p>
-                           )}
-                        </div>
-                     </div>
-                   </div>
-                 </div>
-               );
-             })}
-
-             {dayTasks.length === 0 && (
-               <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-                  <LayoutGrid size={48} className="mb-4 opacity-20" />
-                  <p className="font-medium">No tasks scheduled for this day.</p>
-                  <button onClick={onBack} className="mt-4 text-indigo-600 hover:underline">Back to Month View</button>
-               </div>
-             )}
+          <div className="text-center py-16 text-slate-300">
+            <Sparkles size={48} className="mx-auto mb-4 opacity-10" />
+            <p className="font-black text-sm uppercase tracking-widest">Select a task on the clock</p>
           </div>
         )}
       </div>

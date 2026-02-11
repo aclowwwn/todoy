@@ -7,7 +7,7 @@ import { AIPlannerModal } from './components/AIPlannerModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { LandingPage } from './components/LandingPage';
 import { Project, Task, User } from './types';
-import { Calendar as CalendarIcon, Sparkles, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Sparkles, Trash2, ChevronLeft, ChevronRight, Menu, X, ArrowLeft } from 'lucide-react';
 import { format, addMonths, subMonths, setYear, setMonth } from 'date-fns';
 import { api } from './services/api';
 
@@ -107,14 +107,6 @@ const SEED_TASKS_FEB_11: Partial<Task>[] = [
     ]
   },
   { 
-    id: 't10', projectId: 'proj-family', title: 'Play with the Boys', date: '2026-02-11', startTime: '17:40', endTime: '18:00', 
-    description: 'Undivided attention for the kids.',
-    checklist: [
-      { id: 'cl28', text: 'Build a block tower', completed: false },
-      { id: 'cl29', text: 'Read a picture book', completed: false }
-    ]
-  },
-  { 
     id: 't11', projectId: 'proj-family', title: 'Dinner & Bedtime', date: '2026-02-11', startTime: '18:00', endTime: '19:00', 
     description: 'Family dinner and putting the boys to sleep.',
     checklist: [
@@ -135,8 +127,8 @@ const SEED_TASKS_FEB_11: Partial<Task>[] = [
 ];
 
 const App: React.FC = () => {
-  // --- State ---
   const [showLanding, setShowLanding] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>({
     id: 'default-user',
     email: 'family@example.com',
@@ -144,10 +136,9 @@ const App: React.FC = () => {
   });
   
   const [currentDate, setCurrentDate] = useState(() => {
-    // Start the calendar in February 2026
     let d = new Date();
     d = setYear(d, 2026);
-    d = setMonth(d, 1); // 1 is February (0-indexed)
+    d = setMonth(d, 1);
     return d;
   });
 
@@ -161,7 +152,6 @@ const App: React.FC = () => {
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
-  // --- Data Loading & Seeding ---
   useEffect(() => {
     if (showLanding || !user) return;
 
@@ -171,7 +161,6 @@ const App: React.FC = () => {
         let loadedProjects = await api.getProjects();
         let loadedTasks = await api.getTasks();
 
-        // Seed default buckets if no projects exist
         if (loadedProjects.length === 0) {
           for (const bucket of DEFAULT_PROJECT_BUCKETS) {
             await api.createProject(bucket);
@@ -179,7 +168,6 @@ const App: React.FC = () => {
           loadedProjects = DEFAULT_PROJECT_BUCKETS;
         }
 
-        // Seed Feb 11 tasks if task list is empty
         if (loadedTasks.length === 0) {
           const newTasks: Task[] = SEED_TASKS_FEB_11.map(t => ({
             ...t,
@@ -215,8 +203,6 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Handlers ---
-  
   const handleAddTasks = async (newTasks: Task[]) => {
     setTasks(prev => [...prev, ...newTasks]);
     for (const task of newTasks) {
@@ -235,7 +221,6 @@ const App: React.FC = () => {
   const handleMoveTask = async (task: Task, newDate: Date) => {
     const newDateStr = format(newDate, 'yyyy-MM-dd');
     if (task.date === newDateStr) return;
-    
     const updatedTask = { ...task, date: newDateStr };
     handleUpdateTask(updatedTask);
   };
@@ -254,170 +239,143 @@ const App: React.FC = () => {
   const nextMonth = () => setCurrentDate(prev => addMonths(prev, 1));
   const prevMonth = () => setCurrentDate(prev => subMonths(prev, 1));
 
+  if (showLanding) return <LandingPage onEnterApp={() => setShowLanding(false)} />;
+
   const currentProject = selectedTask ? projects.find(p => p.id === selectedTask.projectId) : undefined;
 
-  // --- Render ---
-
-  if (showLanding) {
-    return <LandingPage onEnterApp={() => setShowLanding(false)} />;
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-12 flex flex-col">
-      {/* Navbar */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm flex-shrink-0">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="bg-indigo-600 p-2 rounded-lg text-white">
-                <CalendarIcon size={24} />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-800 leading-none">Family Planner 2026</h1>
-                <p className="text-xs text-slate-500 font-medium uppercase tracking-tighter">
-                  {view === 'month' ? format(currentDate, 'MMMM yyyy') : format(selectedDate, 'PPP')}
-                </p>
-              </div>
-            </div>
-            
-            {view === 'month' && (
-              <div className="hidden md:flex items-center bg-slate-100 rounded-lg p-1 mx-4">
-                <button onClick={prevMonth} className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-600">
-                  <ChevronLeft size={20} />
-                </button>
-                <div className="px-4 text-sm font-bold text-slate-700 min-w-[140px] text-center">
-                  {format(currentDate, 'MMMM yyyy')}
+          <div className="flex justify-between h-16 items-center">
+            {view === 'month' ? (
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-600 p-2 rounded-lg text-white">
+                  <CalendarIcon size={24} />
                 </div>
-                <button onClick={nextMonth} className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-600">
-                  <ChevronRight size={20} />
+                <div>
+                  <h1 className="text-xl font-bold text-slate-800 leading-none">Planner 2026</h1>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">
+                    {format(currentDate, 'MMMM yyyy')}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setView('month')}
+                  className="p-2 -ml-2 hover:bg-slate-100 rounded-full text-indigo-600 transition-colors"
+                >
+                  <ArrowLeft size={24} />
                 </button>
+                <div>
+                  <h2 className="text-base font-black text-slate-800 tracking-tight leading-none">
+                    {format(selectedDate, 'EEEE, MMM do')}
+                  </h2>
+                  <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest mt-0.5">
+                    {tasks.filter(t => t.date === format(selectedDate, 'yyyy-MM-dd')).length} Scheduled
+                  </p>
+                </div>
               </div>
             )}
-
+            
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsAIModalOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-colors"
               >
                 <Sparkles size={16} />
-                <span className="hidden sm:inline">AI Assistant</span>
+                <span>AI Assistant</span>
               </button>
+              
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 sm:hidden text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
+
               <button
                 onClick={handleClearData}
-                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                title="Clear all data"
+                className="hidden sm:flex p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
               >
                 <Trash2 size={20} />
               </button>
             </div>
           </div>
         </div>
+
+        {mobileMenuOpen && (
+          <div className="sm:hidden absolute top-16 left-0 w-full bg-white border-b border-slate-200 shadow-xl py-4 px-6 animate-in slide-in-from-top duration-200 space-y-4">
+             <button
+              onClick={() => { setIsAIModalOpen(true); setMobileMenuOpen(false); }}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold rounded-xl text-white bg-indigo-600 shadow-md"
+            >
+              <Sparkles size={18} />
+              AI Assistant
+            </button>
+            <button
+              onClick={() => { handleClearData(); setMobileMenuOpen(false); }}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-bold rounded-xl text-red-600 bg-red-50 border border-red-100"
+            >
+              <Trash2 size={18} />
+              Clear All Data
+            </button>
+          </div>
+        )}
       </nav>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+      <main className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8 flex-1 w-full">
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-          </div>
+          <div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div></div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
-            <div className="lg:col-span-3 space-y-6 hidden lg:block">
-              <ProjectManager 
-                projects={projects} 
-                setProjects={setProjects} 
-              />
-              
+            <div className="lg:col-span-3 space-y-6 hidden lg:block py-8">
+              <ProjectManager projects={projects} setProjects={setProjects} />
               <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
                 <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">Project Progress</h3>
                 <div className="space-y-4">
                   {projects.map(p => {
                     const pTasks = tasks.filter(e => e.projectId === p.id);
                     const total = pTasks.length;
-                    
                     if (total === 0) return null;
-
                     let totalCompletionScore = 0;
-                    
                     pTasks.forEach(e => {
-                      if (e.completed) {
-                        totalCompletionScore += 1;
-                      } else if (e.checklist && e.checklist.length > 0) {
-                        const checked = e.checklist.filter(i => i.completed).length;
-                        totalCompletionScore += (checked / e.checklist.length);
-                      }
+                      if (e.completed) totalCompletionScore += 1;
+                      else if (e.checklist?.length > 0) totalCompletionScore += (e.checklist.filter(i => i.completed).length / e.checklist.length);
                     });
-
-                    const percent = Math.round((totalCompletionScore / total) * 100);
-                    const displayPercent = Math.min(100, Math.max(0, percent));
-
+                    const percent = Math.min(100, Math.round((totalCompletionScore / total) * 100));
                     return (
                       <div key={p.id}>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="font-medium text-slate-600">{p.name}</span>
-                          <span className="text-slate-400">{displayPercent}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${displayPercent}%`, backgroundColor: p.color }} 
-                          />
-                        </div>
+                        <div className="flex justify-between text-xs mb-1"><span className="font-medium text-slate-600">{p.name}</span><span className="text-slate-400">{percent}%</span></div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: p.color }} /></div>
                       </div>
                     );
                   })}
-                  {tasks.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No tasks scheduled yet.</p>}
                 </div>
               </div>
             </div>
 
-            <div className="lg:col-span-9 h-[calc(100vh-8rem)]">
+            <div className="lg:col-span-9 h-full">
               {view === 'month' ? (
-                <div className="h-full flex flex-col gap-4">
-                   <div className="md:hidden flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
-                      <button onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronLeft size={20}/></button>
-                      <span className="font-bold">{format(currentDate, 'MMMM yyyy')}</span>
-                      <button onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronRight size={20}/></button>
-                   </div>
-                  <Calendar 
-                    currentDate={currentDate}
-                    projects={projects}
-                    tasks={tasks}
-                    onTaskClick={setSelectedTask}
-                    onDayClick={handleDayClick}
-                    onTaskMove={handleMoveTask}
-                  />
+                <div className="h-full flex flex-col gap-4 py-4 sm:py-8 px-4 sm:px-0">
+                  <div className="md:hidden flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200">
+                    <button onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronLeft size={20}/></button>
+                    <span className="font-bold">{format(currentDate, 'MMMM yyyy')}</span>
+                    <button onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronRight size={20}/></button>
+                  </div>
+                  <Calendar currentDate={currentDate} projects={projects} tasks={tasks} onTaskClick={setSelectedTask} onDayClick={handleDayClick} onTaskMove={handleMoveTask} />
                 </div>
               ) : (
-                <DayView
-                  date={selectedDate}
-                  projects={projects}
-                  tasks={tasks}
-                  onBack={() => setView('month')}
-                  onTaskClick={setSelectedTask}
-                  onUpdateTask={handleUpdateTask}
-                />
+                <DayView date={selectedDate} projects={projects} tasks={tasks} onBack={() => setView('month')} onTaskClick={setSelectedTask} onUpdateTask={handleUpdateTask} />
               )}
             </div>
           </div>
         )}
       </main>
 
-      <AIPlannerModal
-        isOpen={isAIModalOpen}
-        onClose={() => setIsAIModalOpen(false)}
-        projects={projects}
-        onAddTasks={handleAddTasks}
-        activeMonth={currentDate}
-      />
-
-      <TaskDetailModal
-        task={selectedTask}
-        project={currentProject}
-        onClose={() => setSelectedTask(null)}
-        onUpdateTask={handleUpdateTask}
-        onDeleteTask={handleDeleteTask}
-      />
+      <AIPlannerModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} projects={projects} onAddTasks={handleAddTasks} activeMonth={currentDate} />
+      <TaskDetailModal task={selectedTask} project={currentProject} onClose={() => setSelectedTask(null)} onUpdateTask={handleUpdateTask} onDeleteTask={handleDeleteTask} />
     </div>
   );
 };
