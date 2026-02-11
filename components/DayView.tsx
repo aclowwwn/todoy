@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { format, isSameDay, parse, isWithinInterval } from 'date-fns';
-import { CheckSquare, Clock, ChevronRight, ChevronLeft, Video, Image as ImageIcon, CircleDashed, Sparkles } from 'lucide-react';
+import { format, isSameDay, isWithinInterval } from 'date-fns';
+import { CheckSquare, Clock, Video, Image as ImageIcon, CircleDashed, Sparkles } from 'lucide-react';
 import { Project, Task } from '../types';
 
 interface DayViewProps {
@@ -45,9 +45,9 @@ export const DayView: React.FC<DayViewProps> = ({
   }, []);
 
   const dayTasks = useMemo(() => {
-    return tasks.filter(task => 
-      isSameDay(parse(task.date, 'yyyy-MM-dd', new Date()), date)
-    ).sort((a, b) => a.startTime.localeCompare(b.startTime));
+    const dateStr = format(date, 'yyyy-MM-dd');
+    return tasks.filter(task => task.date === dateStr)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
   }, [tasks, date]);
 
   useEffect(() => {
@@ -57,8 +57,8 @@ export const DayView: React.FC<DayViewProps> = ({
     const isToday = isSameDay(date, now);
     if (isToday) {
       const current = dayTasks.find(e => {
-        const start = parse(`${e.date} ${e.startTime}`, 'yyyy-MM-dd HH:mm', new Date());
-        const end = parse(`${e.date} ${e.endTime}`, 'yyyy-MM-dd HH:mm', new Date());
+        const start = new Date(`${e.date}T${e.startTime}:00`);
+        const end = new Date(`${e.date}T${e.endTime}:00`);
         return isWithinInterval(now, { start, end });
       });
       if (current) { setSelectedTaskId(current.id); return; }
@@ -75,7 +75,6 @@ export const DayView: React.FC<DayViewProps> = ({
     return baseTask;
   }, [dayTasks, selectedTaskId, dragPreview]);
 
-  // Unified VIEW_SIZE for focused mobile/desktop display - Increasded from 240 to 320
   const VIEW_SIZE = 320; 
   const CENTER = VIEW_SIZE / 2;
   const RADIUS_PM = 110; 
@@ -153,14 +152,39 @@ export const DayView: React.FC<DayViewProps> = ({
       const startMinutes = startH * 60 + startM;
       const [endH, endM] = effectiveEndTime.split(':').map(Number);
       const endMinutes = endH * 60 + endM;
+      
       const project = projects.find(p => p.id === task.projectId);
+      
+      // Calculate progress
+      const totalItems = task.checklist.length;
+      const completedItems = task.checklist.filter(i => i.completed).length;
+      
+      let progress = 0;
+      if (totalItems > 0) {
+        progress = completedItems / totalItems;
+      } else {
+        progress = task.completed ? 1 : 0;
+      }
+
+      // Logic: Color intensifies (more opaque) with each todo. 
+      // 0% progress = 10% opacity. 
+      // 100% progress = 0% opacity (vanishes).
+      const taskOpacity = progress === 1 ? 1 : 0.1 + (progress * 0.8);
+      const taskColor = project?.color || '#cbd5e1';
+
       const addSegment = (isPm: boolean, startMin: number, endMin: number) => {
         let startDeg = ((startMin / 60) % 12) * 30 + (startMin % 60) * 0.5;
         let endDeg = ((endMin / 60) % 12) * 30 + (endMin % 60) * 0.5;
         if (endDeg <= startDeg) endDeg += 360;
         segments.push({
-          id: task.id, task, isPm, path: describeArc(CENTER, CENTER, isPm ? RADIUS_PM : RADIUS_AM, startDeg, endDeg),
-          color: project?.color || '#cbd5e1', duration: endMin - startMin, isDragging
+          id: task.id, 
+          task, 
+          isPm, 
+          path: describeArc(CENTER, CENTER, isPm ? RADIUS_PM : RADIUS_AM, startDeg, endDeg),
+          color: taskColor, 
+          opacity: taskOpacity,
+          isDragging,
+          progress
         });
       };
       if (startMinutes < 720 && endMinutes <= 720) addSegment(false, startMinutes, endMinutes);
@@ -180,24 +204,44 @@ export const DayView: React.FC<DayViewProps> = ({
 
   return (
     <div className="flex-1 flex flex-col items-center bg-slate-50 min-h-full pb-12 overflow-y-auto">
-      {/* Significantly larger dial for better visibility and interactivity */}
-      <div className="w-full max-w-[340px] aspect-square relative my-6 flex-shrink-0 bg-white rounded-[2.5rem] shadow-2xl border border-white p-2">
+      <div className="w-full max-w-[340px] aspect-square relative my-6 flex-shrink-0 p-2">
         <svg ref={svgRef} viewBox={`0 0 ${VIEW_SIZE} ${VIEW_SIZE}`} className="w-full h-full" style={{ touchAction: 'none' }}>
-          <circle cx={CENTER} cy={CENTER} r={CENTER - 5} fill="#fcfcfd" />
+          <circle cx={CENTER} cy={CENTER} r={RADIUS_AM - 15} fill="white" className="shadow-sm" />
+          
           <text x={CENTER} y={CENTER} textAnchor="middle" dominantBaseline="middle" className="text-3xl font-black fill-slate-800 tracking-tight">{format(currentTime, 'h:mm')}</text>
           <text x={CENTER} y={CENTER + 22} textAnchor="middle" dominantBaseline="middle" className="text-[11px] font-black fill-slate-400 uppercase tracking-[0.2em]">{format(currentTime, 'a')}</text>
           
-          <circle cx={CENTER} cy={CENTER} r={RADIUS_PM} fill="none" stroke={isCurrentPm ? "rgba(99, 102, 241, 0.08)" : "rgba(0,0,0,0.02)"} strokeWidth={STROKE_WIDTH_TRACK} />
-          <circle cx={CENTER} cy={CENTER} r={RADIUS_AM} fill="none" stroke={!isCurrentPm ? "rgba(99, 102, 241, 0.08)" : "rgba(0,0,0,0.02)"} strokeWidth={STROKE_WIDTH_TRACK} />
+          <circle cx={CENTER} cy={CENTER} r={RADIUS_PM} fill="none" stroke={isCurrentPm ? "rgba(99, 102, 241, 0.12)" : "rgba(0,0,0,0.04)"} strokeWidth={STROKE_WIDTH_TRACK} />
+          <circle cx={CENTER} cy={CENTER} r={RADIUS_AM} fill="none" stroke={!isCurrentPm ? "rgba(99, 102, 241, 0.12)" : "rgba(0,0,0,0.04)"} strokeWidth={STROKE_WIDTH_TRACK} />
 
-          {taskSegments.map((seg, idx) => (
-            <g key={`${seg.id}-${idx}`} onClick={() => setSelectedTaskId(seg.id)} onMouseDown={(e) => handleMouseDown(e, seg.id, seg.isPm)} className="cursor-pointer group">
-              <path 
-                d={seg.path} fill="none" stroke={seg.color} strokeWidth={selectedTaskId === seg.id ? STROKE_WIDTH_EVENT + 6 : STROKE_WIDTH_EVENT} 
-                strokeLinecap="round" strokeOpacity={selectedTaskId === seg.id ? 1 : 0.45} className="transition-all duration-300 group-hover:stroke-opacity-80"
-              />
-            </g>
-          ))}
+          {taskSegments.map((seg, idx) => {
+            const isSelected = selectedTaskId === seg.id;
+            return (
+              <g key={`${seg.id}-${idx}`} onClick={() => setSelectedTaskId(seg.id)} onMouseDown={(e) => handleMouseDown(e, seg.id, seg.isPm)} className="cursor-pointer group">
+                {/* White Halo Selection Border - Visible even if segment is 0% opacity */}
+                {isSelected && (
+                  <path 
+                    d={seg.path} 
+                    fill="none" 
+                    stroke="white" 
+                    strokeWidth={STROKE_WIDTH_EVENT + 8} 
+                    strokeLinecap="round" 
+                    strokeOpacity={1}
+                  />
+                )}
+                {/* Intensifying Task Segment */}
+                <path 
+                  d={seg.path} 
+                  fill="none" 
+                  stroke={seg.color} 
+                  strokeWidth={STROKE_WIDTH_EVENT} 
+                  strokeLinecap="round" 
+                  strokeOpacity={seg.opacity} 
+                  className="transition-all duration-300 group-hover:stroke-opacity-100"
+                />
+              </g>
+            );
+          })}
 
           {isSameDay(date, new Date()) && (
             <g transform={`rotate(${currentHandDegrees}, ${CENTER}, ${CENTER})`} className="pointer-events-none transition-transform duration-1000 ease-linear">
@@ -206,22 +250,17 @@ export const DayView: React.FC<DayViewProps> = ({
             </g>
           )}
         </svg>
-        
-        {dayTasks.length > 1 && (
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-2 pointer-events-none">
-              <button onClick={() => { const i = dayTasks.findIndex(t => t.id === selectedTaskId); setSelectedTaskId(dayTasks[(i - 1 + dayTasks.length) % dayTasks.length].id); }} className="p-2 bg-white/95 rounded-full shadow-lg pointer-events-auto border border-slate-100 text-slate-400 active:scale-95 transition-transform"><ChevronLeft size={24} /></button>
-              <button onClick={() => { const i = dayTasks.findIndex(t => t.id === selectedTaskId); setSelectedTaskId(dayTasks[(i + 1) % dayTasks.length].id); }} className="p-2 bg-white/95 rounded-full shadow-lg pointer-events-auto border border-slate-100 text-slate-400 active:scale-95 transition-transform"><ChevronRight size={24} /></button>
-          </div>
-        )}
       </div>
 
-      {/* Focused Checklist View */}
       <div className="w-full px-4 max-w-lg animate-in slide-in-from-bottom-6 duration-400">
         {activeTaskData ? (
           <div className="bg-white rounded-[2rem] shadow-2xl border border-white overflow-hidden">
              <div className="p-5 border-b border-slate-50 flex justify-between items-start bg-slate-50/40">
                <div className="flex-1">
-                  <span className="text-[10px] font-black uppercase tracking-[0.15em] text-white px-2.5 py-1 rounded-lg shadow-sm" style={{ backgroundColor: projects.find(p => p.id === activeTaskData.projectId)?.color }}>
+                  <span 
+                    className="text-[10px] font-black uppercase tracking-[0.15em] text-white px-2.5 py-1 rounded-lg shadow-sm transition-colors duration-300" 
+                    style={{ backgroundColor: projects.find(p => p.id === activeTaskData.projectId)?.color }}
+                  >
                     {projects.find(p => p.id === activeTaskData.projectId)?.name}
                   </span>
                   <h3 className="text-xl font-black text-slate-800 mt-2 leading-tight tracking-tight">{activeTaskData.title}</h3>
